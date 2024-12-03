@@ -1,0 +1,447 @@
+---
+title: "DEP"
+output: html_document
+date: "`r Sys.Date()`"
+---
+##IMPORTING
+```{r}
+install.packages("visdat")
+install.packages("leaflet.extras")
+```
+
+## LOADING LIBRARIES
+```{r}
+library(readxl)
+library(visdat)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(leaflet)
+library(leaflet.extras)
+```
+
+#LOADING DATASET
+```{r}
+# Set the file path
+file_path <- "final_mountain_data.xlsx"
+
+# Load the Excel file
+final_mountain_data <- read_excel(file_path)
+
+# View the structure of the dataset
+str(final_mountain_data)
+
+```
+
+## DATA CHECKING
+#Checking for nulls
+```{r}
+# Plot missing values
+vis_miss(final_mountain_data) +
+  scale_fill_manual(name = "Legend", 
+                    values = c("grey", "navyblue"),
+                    labels = c("Non-missing values", "Missing values")) +
+  labs(title = paste("Plot showing missing values in the dataset for each column"))
+```
+#Checking for outliers
+```{r}
+# Select numerical columns
+numerical_columns <- c("height_meters", "height_feet", "mountain_latitude", "mountain_longitude", "temperature", "precipitation", "nationality_latitude", "nationality_longitude")
+
+# Plot density plots for numerical columns
+plots <- lapply(numerical_columns, function(column) {
+  ggplot(final_mountain_data, aes(x = !!sym(column), fill = !!sym(column))) +
+    geom_density(alpha = 0.5) +
+    labs(title = paste("Density Plot of", column),
+         x = column, y = "Density") +
+    theme_minimal()
+})
+
+# Print plots
+plots
+
+```
+
+Outliers
+```{r}
+
+# Select numerical columns
+num_columns <- c("mountain_latitude", "mountain_longitude", "temperature", "precipitation", "nationality_latitude", "nationality_longitude")
+
+# Reshape data using gather
+boxplot_data <- final_mountain_data %>%
+  select(all_of(num_columns)) %>%
+  gather(variable, value)
+
+# Plot box plot
+ggplot(boxplot_data, aes(x = variable, y = value)) +
+  geom_boxplot() +
+  scale_y_continuous(limits = c(min(boxplot_data$value), max(boxplot_data$value)), expand = expansion(mult = c(0.05, 0.05))) +
+  labs(x = "Columns", y = "Value", title = "Box Plot of Numerical Columns with Outliers") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+
+
+```
+
+
+#Checking for duplicates
+```{r}
+# Check for duplicates in a dataframe without removing them
+duplicates <- final_mountain_data[duplicated(final_mountain_data), ]
+print(duplicates)
+```
+
+
+```{r}
+# Remove missing values from the 'precipitation' column
+precipitation_without_na <- final_mountain_data$precipitation[!is.na(final_mountain_data$precipitation)]
+
+# Calculate quartiles for the 'precipitation' column
+quartiles <- quantile(precipitation_without_na, probs = c(0.25, 0.5, 0.75))
+
+# Print quartiles
+print(quartiles)
+```
+
+## DATA EXPLORATION
+#Line chart - deaths by year and mountain
+```{r}
+# Load required library
+library(ggplot2)
+
+# Create the line chart with adjusted x-axis breaks
+ggplot(final_mountain_data, aes(x = year(date), group = 1)) +
+  geom_line(stat = "count", color = "skyblue") +  # Adjust color as needed
+  labs(title = "Total Number of Deaths Every Year",
+       x = "Year",
+       y = "Total Number of Deaths") +
+  scale_x_continuous(breaks = seq(min(year(final_mountain_data$date)), max(year(final_mountain_data$date)), by = 10)) +
+  theme_minimal()
+
+```
+#Caret plot
+```{r}
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+
+# Convert 'date' column to year
+final_mountain_data$year <- as.numeric(format(as.Date(final_mountain_data$date), "%Y"))
+
+# Filter the data for years starting from 1940
+filtered_data <- final_mountain_data %>%
+  filter(year >= 1940)
+
+# Plot for number of deaths over the years
+plot1 <- ggplot(filtered_data, aes(x = year)) +
+  geom_line(stat = "count", color = "navyblue") +  # Count the number of observations for each year
+  labs(title = "Number of Deaths Over Time",
+       x = "Year",
+       y = "Number of Deaths") +
+  scale_x_continuous(breaks = seq(1940, max(filtered_data$year), by = 10))  # Set breaks every 10 years
+
+final_mountain_data_sorted <- final_mountain_data %>%
+  group_by(mountain_name) %>%
+  summarise(death_count = n()) %>%
+  arrange(desc(death_count))
+
+# Plot for deaths in each mountain
+plot2 <- ggplot(final_mountain_data_sorted, aes(x = reorder(mountain_name, -death_count), y = death_count)) +
+  geom_bar(stat = "identity", fill = "navyblue") +
+  labs(title = "Deaths in Each Mountain",
+       x = "Mountain Name",
+       y = "Number of Deaths") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Arrange plots side by side
+combined_plots <- grid.arrange(plot1, plot2, ncol = 2, widths = c(1, 1.2))  # Increase space between plots
+
+# Display the combined plots
+print(combined_plots)
+
+```
+#Jitter plot
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Assuming your dataset is named final_mountain_data
+final_mountain_data <- final_mountain_data %>%
+  mutate(month = factor(month(date), labels = month.abb))  # Convert to factor with abbreviated month names
+
+# Define distinct colors for each month
+distinct_colors <- c("#1f77b4", "#8c564b", "#2ca02c", "#d62728", "#9467bd", "#ff7f0e",
+                     "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ff9896") 
+
+ggplot(final_mountain_data, aes(x = mountain_name, y = cause_of_death, color = month)) +
+  geom_jitter(height = 0.5, width = 0.2) +
+  labs(title = "Number of Deaths at Each Mountain with Causes Highlighted",
+       x = "Mountain Name",
+       y = "Cause of Death",
+       color = "Month") +
+  scale_color_manual(values = distinct_colors, labels = month.abb) +  # Specify distinct colors and labels
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Assuming your dataset is named final_mountain_data
+final_mountain_data <- final_mountain_data %>%
+  mutate(month = factor(month(date), labels = month.abb))  # Convert to factor with abbreviated month names
+
+# Define distinct colors for each mountain
+distinct_colors <- c("#1f77b4", "#8c564b", "#2ca02c", "#d62728", "#9467bd", "#ff7f0e",
+                     "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ff9896",
+                     "#98df8a", "#ffbb78")  # Add two more colors
+
+ggplot(final_mountain_data, aes(x = month, y = cause_of_death, fill = mountain_name)) +
+  geom_tile(color = "white") +
+  scale_fill_manual(values = distinct_colors) +  # Specify distinct colors for each mountain
+  labs(title = "Fatalities by Cause and Month for Each Mountain",
+       x = "Month",
+       y = "Cause of Death",
+       fill = "Mountain Name") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+
+
+#area chart
+```{r}
+library(ggplot2)
+
+# Filter the data for altitudes between 26000 and 30000 feet
+filtered_data <- final_mountain_data %>%
+  filter(height_feet >= 26000 & height_feet <= 30000)
+
+# Create an area plot for number of deaths by altitude and facet by cause of death
+ggplot(filtered_data, aes(x = height_feet)) +
+  geom_area(aes(fill = cause_of_death), stat = "bin", binwidth = 1000) +
+  labs(title = "Number of Deaths by Altitude (26000 - 30000 feet)",
+       x = "Altitude (feet)",
+       y = "Number of Deaths") +
+  facet_wrap(~ cause_of_death) +
+  theme_minimal()
+
+```
+
+```{r}
+
+
+# Filter out null values for height_feet
+filtered_data <- final_mountain_data %>%
+  filter(!is.na(height_feet))
+
+# Summarize the filtered data by altitude and cause of death
+summarized_data <- filtered_data %>%
+  group_by(height_feet, cause_of_death) %>%
+  summarize(total_deaths = n()) %>%
+  ungroup()
+
+# Create an area plot for number of deaths by altitude, with separate lines for each cause of death
+ggplot(summarized_data, aes(x = height_feet, y = total_deaths, fill = cause_of_death)) +
+  geom_area() +
+  labs(title = "Number of Deaths and Causes by Altitude",
+       x = "Altitude (feet)",
+       y = "Number of Deaths") +
+  scale_fill_brewer(palette = "Set3") +  # Set color palette for causes of deaths
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(26000, 30000, by = 500)) +  # Adjust x-axis breaks to show more values
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+Clustering
+```{r}
+str(final_mountain_data)
+```
+
+
+```{r}
+# Load required libraries
+library(dplyr)
+library(tidyr)
+library(caret)
+library(cluster)
+
+# Handle missing values
+final_mountain_data_na <- na.omit(final_mountain_data)
+
+# Encode categorical variables (nationality and cause of death)
+encoded_data <- final_mountain_data_na %>%
+  mutate(cause_encoded = as.numeric(factor(cause_of_death)),
+         nationality_encoded = as.numeric(factor(climber_nationality)),
+         range_encoded = as.numeric(factor(range)),
+         mountain_encoded = as.numeric(factor(mountain_name)),
+         location_encoded = as.numeric(factor(mountain_location)),
+         temp_encoded = as.numeric(factor(temperature_category)),
+         precipitation_encoded = as.numeric(factor(precipitation_category)))
+
+# Select relevant variables for clustering
+cluster_data <- encoded_data %>%
+  select(cause_encoded, nationality_encoded, range_encoded, mountain_encoded, location_encoded, temp_encoded, precipitation_encoded, height_feet, mountain_latitude, mountain_longitude, nationality_latitude, nationality_longitude, temperature, precipitation)
+
+# Scale numerical variables
+scaled_data <- scale(cluster_data)
+
+# Set the range of clusters to consider
+k_range <- 2:10
+
+# Initialize an empty vector to store silhouette scores
+silhouette_scores <- vector()
+
+# Calculate silhouette scores for each number of clusters
+for (k in k_range) {
+  # Perform k-means clustering
+  kmeans_model <- kmeans(scaled_data, centers = k, nstart = 25)
+  
+  # Calculate silhouette score
+  silhouette_scores[k - 1] <- mean(silhouette(kmeans_model$cluster, dist(scaled_data)))
+}
+
+# Plot silhouette scores
+plot(k_range, silhouette_scores, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of Clusters", ylab = "Silhouette Score", 
+     main = "Silhouette Method for Optimal K")
+
+```
+
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+
+# Drop irrelevant features
+cluster_data <- final_mountain_data %>%
+  select(-date, -climber_name)
+
+cluster_data <- na.omit(cluster_data)
+
+# Preprocess data
+# Convert categorical variables to dummy variables
+encoded_data <- cluster_data %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate_all(funs(as.numeric))
+
+# Standardize numerical features
+final_data <- scale(encoded_data)
+
+# Apply K-means clustering
+k <- 9  # Number of clusters
+kmeans_result <- kmeans(final_data, centers = k)
+
+# Get cluster labels
+clusters <- kmeans_result$cluster
+
+# Add cluster labels to the original dataframe
+cluster_data$cluster <- clusters
+
+
+```
+
+```{r}
+# Perform cluster profiling
+cluster_profiles <- cluster_data %>%
+  group_by(cluster) %>%
+  summarise(weather_mode = names(sort(table(weather_condition), decreasing = TRUE)[1]),
+            nationality_mode = names(sort(table(climber_nationality), decreasing = TRUE)[1]),
+            cause_of_death_mode = names(sort(table(cause_of_death), decreasing = TRUE)[1]))  # Mode of cause_of_death
+
+# Compute minimum and maximum temperature within each cluster
+temperature_summary <- cluster_data %>%
+  group_by(cluster) %>%
+  summarise(min_temperature = min(temperature),
+            max_temperature = max(temperature))
+
+# Merge temperature summaries with cluster_profiles
+cluster_profiles <- left_join(cluster_profiles, temperature_summary, by = "cluster")
+
+# Print cluster profiles
+print(cluster_profiles)
+```
+
+
+```{r}
+# Define distinct colors for each mountain
+distinct_colors <- c("#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#ff7f0e",
+                     "#e377c2", "#bcbd22", "#17becf", "#ffbb78") 
+
+# Scatter plot to visualize clusters
+ggplot(cluster_data, aes(x = temperature, y = mountain_name, color = factor(cluster))) +
+  geom_point() +
+  scale_color_manual(values = distinct_colors, name = "Cluster") +
+  labs(x = "Temperature", y = "Mountain") +
+  ggtitle("Temperature vs Mountain")
+
+```
+
+
+```{r}
+# Define distinct colors for each mountain
+distinct_colors <- c("#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#ff7f0e",
+                     "#e377c2", "#bcbd22", "#17becf", "#ffbb78") 
+
+# Scatter plots to visualize clusters with different feature combinations
+plot1 <- ggplot(cluster_data, aes(x = temperature, y = precipitation, color = factor(cluster))) +
+  geom_point() +
+  scale_color_manual(values = distinct_colors) +
+  labs(x = "Terperature in °C", y = "Precipitation") +
+  ggtitle("Temperature vs Precipitation")
+
+plot2 <- ggplot(cluster_data, aes(x = precipitation, y = height_feet, color = factor(cluster))) +
+  geom_point() +
+  scale_color_manual(values = distinct_colors) +
+  labs(x = "Precipitation", y = "Altitude") +
+  ggtitle("Precipitation vs Altitude")
+
+plot3 <- ggplot(cluster_data, aes(x = precipitation, y = cause_of_death, color = factor(cluster))) +
+  geom_point() +
+  scale_color_manual(values = distinct_colors) +
+  labs(x = "Precipitation", y = "Fatality Cause") +
+  ggtitle("Precipitation vs Fatality Cause")
+
+plot4 <- ggplot(cluster_data, aes(x = temperature, y = mountain_name, color = factor(cluster))) +
+  geom_point() +
+  scale_color_manual(values = distinct_colors) +
+  labs(x = "Terperature in °C", y = "Mountain") +
+  ggtitle("Temperature vs Mountain")
+
+# Combine plots into a grid, manually arrange the legend
+combined_plot <- grid.arrange(
+  plot1 + theme(legend.position = "none"),
+  plot2 + theme(legend.position = "none"),
+  plot3 + theme(legend.position = "none"),
+  plot4 + theme(legend.position = "none"),
+  nrow = 2,
+  widths = c(1, 1),
+  heights = c(1, 1)
+)
+
+# Add overall title to the combined plot
+combined_plot_with_title <- ggdraw() +
+  draw_label("K-means Clustering of Mountain Fatality Data", fontface = 'bold', size = 14, x = 0.5, hjust = 0.5) +
+  theme(plot.margin = margin(0, 0, 20, 0))  # Adjust bottom margin for title
+
+# Arrange the combined plot and title
+final_plot <- plot_grid(
+  combined_plot_with_title,
+  combined_plot,
+  nrow = 2,
+  rel_heights = c(0.1, 1)
+)
+
+# Print the final plot
+print(final_plot)
+
+
+```
+
